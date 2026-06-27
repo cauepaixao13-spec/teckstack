@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { supabase } from "./supabase.js";
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -24,13 +25,11 @@ const STATUS = {
 };
 
 const SORTS = [
-  {v:'name_asc', l:'Nome (A→Z)'},     {v:'name_desc',l:'Nome (Z→A)'},
+  {v:'name_asc', l:'Nome (A→Z)'},      {v:'name_desc',l:'Nome (Z→A)'},
   {v:'cur_desc', l:'Maior Preço Atual'},{v:'cur_asc', l:'Menor Preço Atual'},
   {v:'des_desc', l:'Maior Desejado'},  {v:'des_asc', l:'Menor Desejado'},
   {v:'dlt_desc', l:'Maior Diferença'}, {v:'dlt_asc', l:'Menor Diferença'},
 ];
-
-const STORAGE_KEY = 'techstack_v2_items';
 
 // ═══════════════════════════════════════════════════════════════
 // UTILS
@@ -42,34 +41,66 @@ const num   = v  => parseFloat(v)||0;
 const dlt   = i  => num(i.currentPrice) - num(i.desiredPrice);
 
 // ═══════════════════════════════════════════════════════════════
-// PERSISTENT STORAGE (window.storage — persists across sessions)
-// Preparado para migração futura ao Supabase:
-// basta trocar db.load/db.save pelos métodos da SDK do Supabase.
+// SUPABASE DATA LAYER
+// Mapeamento camelCase (app) ↔ snake_case (banco)
 // ═══════════════════════════════════════════════════════════════
 
-// Persistência via localStorage — compatível com qualquer navegador
-// Para migrar ao Supabase: substituir load/save pelos métodos da SDK
+const toDB = item => ({
+  id:            item.id,
+  name:          item.name,
+  brand:         item.brand   || null,
+  category:      item.category,
+  current_price: num(item.currentPrice),
+  desired_price: num(item.desiredPrice),
+  status:        item.status,
+  link:          item.link    || null,
+  notes:         item.notes   || null,
+  created_at:    item.createdAt,
+  updated_at:    item.updatedAt,
+});
+
+const fromDB = row => ({
+  id:           row.id,
+  name:         row.name,
+  brand:        row.brand         || '',
+  category:     row.category,
+  currentPrice: row.current_price || 0,
+  desiredPrice: row.desired_price || 0,
+  status:       row.status,
+  link:         row.link          || '',
+  notes:        row.notes         || '',
+  createdAt:    row.created_at,
+  updatedAt:    row.updated_at,
+});
+
 const db = {
   async load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+    const { data, error } = await supabase
+      .from('items')
+      .select('*')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(fromDB);
   },
-  async save(data) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch(e) { console.error('Storage error:', e); }
-  }
+
+  async upsert(item) {
+    const { error } = await supabase
+      .from('items')
+      .upsert(toDB(item), { onConflict: 'id' });
+    if (error) throw error;
+  },
+
+  async remove(id) {
+    const { error } = await supabase
+      .from('items')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  },
 };
 
 // ═══════════════════════════════════════════════════════════════
 // DESIGN TOKENS
-// Paleta: Deep Slate (#020617) + Cyan (#22d3ee) + Emerald (#34d399)
-// Assinatura visual: glow radial em itens "Comprado" —
-// simboliza o item brilhando no setup como uma peça conquistada.
 // ═══════════════════════════════════════════════════════════════
 
 const C = {
@@ -82,34 +113,39 @@ const C = {
 };
 
 const T = {
-  body: { minHeight:'100vh', background:C.bg, color:C.text, fontFamily:'system-ui,-apple-system,sans-serif' },
-  input: {
-    background:'rgba(2,6,23,0.75)', border:'1px solid rgba(51,65,85,0.6)',
-    borderRadius:8, padding:'8px 11px', color:'#e2e8f0', fontSize:13,
-    outline:'none', width:'100%', boxSizing:'border-box', transition:'border 0.2s',
-  },
-  btn: { borderRadius:8, padding:'8px 16px', fontSize:12, fontWeight:700, cursor:'pointer', border:'none', transition:'all 0.2s' },
+  body:    { minHeight:'100vh', background:C.bg, color:C.text, fontFamily:'system-ui,-apple-system,sans-serif' },
+  input:   { background:'rgba(2,6,23,0.75)', border:'1px solid rgba(51,65,85,0.6)', borderRadius:8, padding:'8px 11px', color:'#e2e8f0', fontSize:13, outline:'none', width:'100%', boxSizing:'border-box', transition:'border 0.2s' },
+  btn:     { borderRadius:8, padding:'8px 16px', fontSize:12, fontWeight:700, cursor:'pointer', border:'none', transition:'all 0.2s' },
   overlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:50, padding:16 },
-  modal: { background:'#0f172a', border:'1px solid rgba(51,65,85,0.85)', borderRadius:18, padding:'24px', width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', animation:'slideUp 0.25s ease-out', boxShadow:'0 24px 64px rgba(0,0,0,0.75)' },
-  label: { color:C.muted, fontSize:10, fontWeight:700, display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.07em' },
+  modal:   { background:'#0f172a', border:'1px solid rgba(51,65,85,0.85)', borderRadius:18, padding:'24px', width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', animation:'slideUp 0.25s ease-out', boxShadow:'0 24px 64px rgba(0,0,0,0.75)' },
+  label:   { color:C.muted, fontSize:10, fontWeight:700, display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.07em' },
 };
 
 // ═══════════════════════════════════════════════════════════════
 // BASE COMPONENTS
 // ═══════════════════════════════════════════════════════════════
 
-function Btn({ onClick, children, ghost, red, full, style: xStyle }) {
+function Btn({ onClick, children, ghost, red, full, disabled, style: xStyle }) {
   const [h, setH] = useState(false);
-  const bg = ghost
-    ? (h?'rgba(51,65,85,0.75)':'rgba(30,41,59,0.7)')
-    : red
-      ? (h?'#9f1239':'linear-gradient(135deg,#be123c,#9f1239)')
-      : (h?'linear-gradient(135deg,#0284c7,#059669)':'linear-gradient(135deg,#0891b2,#059669)');
+  const bg = disabled
+    ? 'rgba(51,65,85,0.3)'
+    : ghost
+      ? (h?'rgba(51,65,85,0.75)':'rgba(30,41,59,0.7)')
+      : red
+        ? (h?'#9f1239':'linear-gradient(135deg,#be123c,#9f1239)')
+        : (h?'linear-gradient(135deg,#0284c7,#059669)':'linear-gradient(135deg,#0891b2,#059669)');
   return (
-    <button onClick={onClick} onMouseEnter={()=>setH(true)} onMouseLeave={()=>setH(false)}
-      style={{ ...T.btn, background:bg, border:ghost?`1px solid ${C.border}`:'none', color:ghost?'#94a3b8':'#fff',
-        boxShadow:ghost?'none':red?'0 2px 12px rgba(190,18,60,0.3)':'0 2px 16px rgba(6,182,212,0.3)',
-        flex:full?1:undefined, ...(xStyle||{}) }}>
+    <button onClick={disabled?undefined:onClick}
+      onMouseEnter={()=>!disabled&&setH(true)}
+      onMouseLeave={()=>setH(false)}
+      style={{ ...T.btn, background:bg,
+        border:ghost?`1px solid ${C.border}`:'none',
+        color: disabled?'#475569':ghost?'#94a3b8':'#fff',
+        boxShadow: disabled||ghost?'none':red?'0 2px 12px rgba(190,18,60,0.3)':'0 2px 16px rgba(6,182,212,0.3)',
+        flex:full?1:undefined,
+        cursor:disabled?'not-allowed':'pointer',
+        opacity: disabled?0.6:1,
+        ...(xStyle||{}) }}>
       {children}
     </button>
   );
@@ -132,24 +168,47 @@ function Badge({ status }) {
   return <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:20, background:s.bg, color:s.color, border:`1px solid ${s.border}`, whiteSpace:'nowrap' }}>{s.icon} {s.label}</span>;
 }
 
+// Toast de erro
+function ErrorToast({ message, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  return (
+    <div style={{ position:'fixed', bottom:20, right:20, zIndex:100, background:'rgba(190,18,60,0.95)', border:'1px solid rgba(239,68,68,0.5)', borderRadius:10, padding:'12px 16px', display:'flex', alignItems:'center', gap:10, animation:'slideUp 0.3s ease-out', boxShadow:'0 8px 24px rgba(0,0,0,0.5)', maxWidth:360 }}>
+      <span style={{ fontSize:16 }}>⚠️</span>
+      <span style={{ color:'#fff', fontSize:12, flex:1 }}>{message}</span>
+      <button onClick={onClose} style={{ background:'none', border:'none', color:'rgba(255,255,255,0.7)', cursor:'pointer', fontSize:16, lineHeight:1 }}>×</button>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 // HEADER
 // ═══════════════════════════════════════════════════════════════
 
-function Header({ onAdd, onExport, count }) {
+function Header({ onAdd, onExport, count, saving }) {
   return (
     <header style={{ background:'rgba(2,6,23,0.92)', borderBottom:`1px solid ${C.border}`, backdropFilter:'blur(14px)', position:'sticky', top:0, zIndex:40 }}>
       <div style={{ maxWidth:1200, margin:'0 auto', padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <div style={{ width:38, height:38, background:'linear-gradient(135deg,#0891b2,#059669)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:19, boxShadow:'0 0 22px rgba(6,182,212,0.45)', flexShrink:0 }}>⚡</div>
           <div>
-            <div style={{ color:'#f1f5f9', fontWeight:800, fontSize:16, lineHeight:1 }}>TechStack Manager</div>
-            <div style={{ color:C.muted, fontSize:11, marginTop:3 }}>Gestão de Hardware & Periféricos</div>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ color:'#f1f5f9', fontWeight:800, fontSize:16, lineHeight:1 }}>TechStack Manager</div>
+              {/* Badge Supabase */}
+              <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:20, background:'rgba(62,207,142,0.15)', color:'#3ecf8e', border:'1px solid rgba(62,207,142,0.3)' }}>
+                ⚡ Supabase
+              </span>
+            </div>
+            <div style={{ color:C.muted, fontSize:11, marginTop:3 }}>
+              {saving ? '💾 Salvando...' : 'Gestão de Hardware & Periféricos'}
+            </div>
           </div>
         </div>
         <div style={{ display:'flex', gap:8 }}>
           {count > 0 && <Btn ghost onClick={onExport}>📊 Exportar CSV</Btn>}
-          <Btn onClick={onAdd}>➕ Nova Peça</Btn>
+          <Btn onClick={onAdd} disabled={saving}>➕ Nova Peça</Btn>
         </div>
       </div>
     </header>
@@ -157,7 +216,7 @@ function Header({ onAdd, onExport, count }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DASHBOARD — computed signals equivalentes via useMemo
+// DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 
 function StatCard({ icon, label, value, sub, c, cbg, cbr }) {
@@ -245,8 +304,7 @@ function FilterBar({ f, setF, shown, total }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PART CARD — elemento central do catálogo
-// Assinatura: glow esmeralda radial + border highlight em itens comprados
+// PART CARD
 // ═══════════════════════════════════════════════════════════════
 
 function PartCard({ item, onEdit, onDelete }) {
@@ -265,18 +323,15 @@ function PartCard({ item, onEdit, onDelete }) {
           ? `0 4px 24px rgba(52,211,153,${hov?0.18:0.08})`
           : hov?'0 6px 24px rgba(0,0,0,0.4)':'none',
       }}>
-      {/* Radial glow — assinatura visual dos itens Comprados */}
       {isPurchased && (
         <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse at 50% -20%,rgba(52,211,153,0.08),transparent 65%)', pointerEvents:'none' }}/>
       )}
 
-      {/* Ações — aparecem no hover */}
       <div style={{ position:'absolute', top:10, right:10, display:'flex', gap:4, opacity:hov?1:0, transition:'opacity 0.2s' }}>
         <ActionBtn icon="✏️" onClick={()=>onEdit(item)} hBg="rgba(8,145,178,0.9)"/>
         <ActionBtn icon="🗑️" onClick={()=>onDelete(item.id)} hBg="rgba(190,18,60,0.9)"/>
       </div>
 
-      {/* Badges */}
       <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10, paddingRight:60 }}>
         <Badge status={item.status}/>
         <span style={{ fontSize:10, color:'#94a3b8', background:'rgba(51,65,85,0.5)', padding:'2px 8px', borderRadius:20 }}>
@@ -287,7 +342,6 @@ function PartCard({ item, onEdit, onDelete }) {
       <h3 style={{ color:'#f1f5f9', fontWeight:700, fontSize:13, margin:'0 0 2px', lineHeight:1.4 }}>{item.name}</h3>
       {item.brand && <p style={{ color:C.muted, fontSize:11, margin:'2px 0 0' }}>{item.brand}</p>}
 
-      {/* Grade de preços — Atual | Desejado | Δ Diff */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:5, marginTop:12 }}>
         {[
           {l:'Atual',    v:money(item.currentPrice), c:'#e2e8f0'},
@@ -317,12 +371,12 @@ function PartCard({ item, onEdit, onDelete }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PART MODAL — Formulário de cadastro/edição
+// PART MODAL
 // ═══════════════════════════════════════════════════════════════
 
 const BLANK = { name:'', brand:'', category:'CPU', currentPrice:'', desiredPrice:'', status:'want_to_buy', link:'', notes:'' };
 
-function PartModal({ item, onSave, onClose }) {
+function PartModal({ item, onSave, onClose, saving }) {
   const [f,setF]     = useState(item?{...item,currentPrice:item.currentPrice||'',desiredPrice:item.desiredPrice||''}:BLANK);
   const [errs,setErrs] = useState({});
   const d = num(f.currentPrice) - num(f.desiredPrice);
@@ -336,7 +390,14 @@ function PartModal({ item, onSave, onClose }) {
     if(!f.name.trim()) e.name='Nome é obrigatório';
     if(!f.currentPrice&&!f.desiredPrice) e.price='Informe pelo menos um preço';
     if(Object.keys(e).length){setErrs(e);return;}
-    onSave({...f, id:f.id||uid(), currentPrice:num(f.currentPrice), desiredPrice:num(f.desiredPrice), updatedAt:new Date().toISOString(), createdAt:f.createdAt||new Date().toISOString()});
+    onSave({
+      ...f,
+      id: f.id || uid(),
+      currentPrice: num(f.currentPrice),
+      desiredPrice: num(f.desiredPrice),
+      updatedAt: new Date().toISOString(),
+      createdAt: f.createdAt || new Date().toISOString(),
+    });
   };
 
   return (
@@ -348,7 +409,6 @@ function PartModal({ item, onSave, onClose }) {
         </div>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          {/* Nome */}
           <div>
             <label style={T.label}>Nome do Produto *</label>
             <input placeholder="Ex: Core i9-14900K" value={f.name} onChange={set('name')} onFocus={iFocus} onBlur={iBlur}
@@ -356,13 +416,11 @@ function PartModal({ item, onSave, onClose }) {
             {errs.name&&<span style={{color:'#f87171',fontSize:10,marginTop:4,display:'block'}}>{errs.name}</span>}
           </div>
 
-          {/* Marca */}
           <div>
             <label style={T.label}>Marca / Fabricante</label>
             <input placeholder="Ex: Intel, NVIDIA, Corsair..." value={f.brand} onChange={set('brand')} onFocus={iFocus} onBlur={iBlur} style={T.input}/>
           </div>
 
-          {/* Categoria */}
           <div>
             <label style={T.label}>Categoria *</label>
             <select value={f.category} onChange={set('category')} onFocus={iFocus} onBlur={iBlur}
@@ -371,7 +429,6 @@ function PartModal({ item, onSave, onClose }) {
             </select>
           </div>
 
-          {/* Preços */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
             <div>
               <label style={T.label}>Preço Atual (R$)</label>
@@ -388,7 +445,6 @@ function PartModal({ item, onSave, onClose }) {
           </div>
           {errs.price&&<span style={{color:'#f87171',fontSize:10,marginTop:-8}}>{errs.price}</span>}
 
-          {/* Preview do delta em tempo real */}
           {(f.currentPrice||f.desiredPrice)&&(
             <div style={{ background:'rgba(2,6,23,0.65)', border:`1px solid ${C.border}`, borderRadius:8, padding:'8px 12px' }}>
               <span style={{ color:C.muted, fontSize:11 }}>Δ Diferença: </span>
@@ -398,7 +454,6 @@ function PartModal({ item, onSave, onClose }) {
             </div>
           )}
 
-          {/* Status */}
           <div>
             <label style={T.label}>Status</label>
             <div style={{ display:'flex', gap:6 }}>
@@ -414,13 +469,11 @@ function PartModal({ item, onSave, onClose }) {
             </div>
           </div>
 
-          {/* Link */}
           <div>
             <label style={T.label}>Link do Produto</label>
             <input type="url" placeholder="https://..." value={f.link} onChange={set('link')} onFocus={iFocus} onBlur={iBlur} style={T.input}/>
           </div>
 
-          {/* Observações */}
           <div>
             <label style={T.label}>Observações</label>
             <textarea rows={3} placeholder="Notas, specs, comparações..." value={f.notes}
@@ -430,8 +483,10 @@ function PartModal({ item, onSave, onClose }) {
         </div>
 
         <div style={{ display:'flex', gap:10, paddingTop:18, marginTop:18, borderTop:`1px solid ${C.border}` }}>
-          <Btn ghost full onClick={onClose}>Cancelar</Btn>
-          <Btn full onClick={submit}>{f.id?'Salvar Alterações':'Adicionar Peça'}</Btn>
+          <Btn ghost full onClick={onClose} disabled={saving}>Cancelar</Btn>
+          <Btn full onClick={submit} disabled={saving}>
+            {saving ? '💾 Salvando...' : f.id ? 'Salvar Alterações' : 'Adicionar Peça'}
+          </Btn>
         </div>
       </div>
     </div>
@@ -442,7 +497,7 @@ function PartModal({ item, onSave, onClose }) {
 // DELETE MODAL
 // ═══════════════════════════════════════════════════════════════
 
-function DeleteModal({ onConfirm, onClose }) {
+function DeleteModal({ onConfirm, onClose, saving }) {
   return (
     <div style={T.overlay} onClick={onClose}>
       <div style={{...T.modal, maxWidth:360, textAlign:'center'}} onClick={e=>e.stopPropagation()}>
@@ -450,8 +505,10 @@ function DeleteModal({ onConfirm, onClose }) {
         <h3 style={{ color:'#f1f5f9', fontWeight:800, fontSize:16, margin:'0 0 8px' }}>Excluir Item?</h3>
         <p style={{ color:C.muted, fontSize:13, margin:'0 0 22px', lineHeight:1.5 }}>Esta ação não pode ser desfeita.</p>
         <div style={{ display:'flex', gap:10 }}>
-          <Btn ghost full onClick={onClose}>Cancelar</Btn>
-          <Btn red full onClick={onConfirm}>Excluir</Btn>
+          <Btn ghost full onClick={onClose} disabled={saving}>Cancelar</Btn>
+          <Btn red full onClick={onConfirm} disabled={saving}>
+            {saving ? '🗑️ Excluindo...' : 'Excluir'}
+          </Btn>
         </div>
       </div>
     </div>
@@ -482,38 +539,29 @@ function EmptyState({ onAdd, isFiltered }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ROOT APP — orquestrador principal
-// Arquitetura preparada para migração a Supabase:
-// substituir `db.load/db.save` pelos métodos da SDK do Supabase.
-// Para exportação PDF futura: expandir `exportCSV` para usar
-// bibliotecas como jsPDF ou @react-pdf/renderer.
+// ROOT APP
 // ═══════════════════════════════════════════════════════════════
 
 export default function App() {
   const [items,    setItems]    = useState([]);
   const [loading,  setLoading]  = useState(true);
-  const [modal,    setModal]    = useState(null);   // null | 'form'
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState(null);
+  const [modal,    setModal]    = useState(null);
   const [editing,  setEditing]  = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [filters,  setFilters]  = useState({ search:'', category:'', status:'', sort:'name_asc' });
 
-  // Carregamento inicial a partir do storage persistente
+  // Carrega dados do Supabase na inicialização
   useEffect(() => {
-    db.load().then(d => { setItems(d||[]); setLoading(false); });
+    db.load()
+      .then(data => { setItems(data); setLoading(false); })
+      .catch(err  => { setError('Erro ao carregar dados: ' + err.message); setLoading(false); });
   }, []);
 
-  // Mutation helper: atualiza estado e persiste automaticamente
-  const mutate = fn => setItems(prev => {
-    const next = fn(prev);
-    db.save(next);          // efeito colateral de persistência
-    return next;
-  });
-
-  // Lista filtrada e ordenada (equivalente a computed signal do Angular)
+  // Lista filtrada e ordenada
   const filtered = useMemo(() => {
     let r = [...items];
-
-    // Filtro por texto
     if (filters.search) {
       const q = filters.search.toLowerCase();
       r = r.filter(i => [i.name,i.brand,i.notes].filter(Boolean).join(' ').toLowerCase().includes(q));
@@ -521,7 +569,6 @@ export default function App() {
     if (filters.category) r = r.filter(i=>i.category===filters.category);
     if (filters.status)   r = r.filter(i=>i.status===filters.status);
 
-    // Ordenação
     const [field,dir] = filters.sort.split('_');
     r.sort((a,b) => {
       let va,vb;
@@ -537,16 +584,43 @@ export default function App() {
   }, [items, filters]);
 
   // Handlers
-  const openAdd  = () => { setEditing(null); setModal('form'); };
-  const openEdit = i  => { setEditing(i);    setModal('form'); };
+  const openAdd    = () => { setEditing(null); setModal('form'); };
+  const openEdit   = i  => { setEditing(i);    setModal('form'); };
   const closeModal = () => { setModal(null); setEditing(null); };
 
-  const handleSave = item => {
-    mutate(prev => prev.some(i=>i.id===item.id) ? prev.map(i=>i.id===item.id?item:i) : [...prev,item]);
-    closeModal();
+  // Salvar (insert ou update) via Supabase
+  const handleSave = async (item) => {
+    setSaving(true);
+    try {
+      await db.upsert(item);
+      setItems(prev =>
+        prev.some(i => i.id === item.id)
+          ? prev.map(i => i.id === item.id ? item : i)
+          : [...prev, item]
+      );
+      closeModal();
+    } catch (err) {
+      setError('Erro ao salvar: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // Exportação CSV — ponto de extensão para PDF futuro
+  // Excluir via Supabase
+  const confirmDelete = async () => {
+    setSaving(true);
+    try {
+      await db.remove(deleting);
+      setItems(prev => prev.filter(i => i.id !== deleting));
+      setDeleting(null);
+    } catch (err) {
+      setError('Erro ao excluir: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Exportação CSV
   const exportCSV = () => {
     const h = ['Nome','Categoria','Marca','Preço Atual','Preço Desejado','Diferença','Status','Link','Observações'];
     const rows = items.map(i=>[
@@ -565,7 +639,7 @@ export default function App() {
     <div style={{...T.body, display:'flex', alignItems:'center', justifyContent:'center'}}>
       <div style={{ textAlign:'center' }}>
         <div style={{ width:48, height:48, background:'linear-gradient(135deg,#0891b2,#059669)', borderRadius:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, margin:'0 auto 12px', boxShadow:'0 0 24px rgba(6,182,212,0.45)' }}>⚡</div>
-        <div style={{ color:C.muted, fontSize:13 }}>Carregando...</div>
+        <div style={{ color:C.muted, fontSize:13 }}>Conectando ao Supabase...</div>
       </div>
     </div>
   );
@@ -581,7 +655,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background:rgba(51,65,85,0.7); border-radius:4px; }
       `}</style>
 
-      <Header onAdd={openAdd} onExport={exportCSV} count={items.length}/>
+      <Header onAdd={openAdd} onExport={exportCSV} count={items.length} saving={saving}/>
 
       <main style={{ maxWidth:1200, margin:'0 auto', padding:'20px 20px 48px' }}>
         {items.length > 0 && <Dashboard items={items}/>}
@@ -601,14 +675,12 @@ export default function App() {
       </main>
 
       {modal === 'form' && (
-        <PartModal item={editing} onSave={handleSave} onClose={closeModal}/>
+        <PartModal item={editing} onSave={handleSave} onClose={closeModal} saving={saving}/>
       )}
       {deleting && (
-        <DeleteModal
-          onConfirm={()=>{ mutate(p=>p.filter(i=>i.id!==deleting)); setDeleting(null); }}
-          onClose={()=>setDeleting(null)}
-        />
+        <DeleteModal onConfirm={confirmDelete} onClose={()=>setDeleting(null)} saving={saving}/>
       )}
+      {error && <ErrorToast message={error} onClose={()=>setError(null)}/>}
     </div>
   );
 }
