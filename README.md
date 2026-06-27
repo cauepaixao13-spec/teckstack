@@ -1,59 +1,108 @@
-# Teckstack
+# ⚡ TechStack Manager
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.0.4.
+Aplicação web para gestão de hardware e periféricos, com controle de preços e acompanhamento de status de compra.
 
-## Development server
-
-To start a local development server, run:
+## 🚀 Como rodar
 
 ```bash
-ng serve
+# 1. Instalar dependências
+npm install
+
+# 2. Iniciar servidor de desenvolvimento
+npm run dev
+
+# 3. Abrir no navegador
+# http://localhost:5173
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## 📦 Build para produção
 
 ```bash
-ng generate component component-name
+npm run build
+npm run preview
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+---
 
+## ✨ Funcionalidades
+
+| Feature | Descrição |
+|---|---|
+| **CRUD Completo** | Adicionar, editar e excluir peças/periféricos |
+| **14 Categorias** | CPU, GPU, RAM, Placa-mãe, Armazenamento, Fonte, Gabinete, Refrigeração, Monitor, Teclado, Mouse, Headset, Periférico, Outros |
+| **Gestão de Preços** | Preço Atual, Preço Desejado e cálculo automático do Delta (Δ) |
+| **3 Status** | 🛒 Quero Comprar · ✅ Comprado · 👁 Observando |
+| **Dashboard** | Valor total atual, meta de preço, economia potencial, já investido |
+| **Filtros** | Busca por texto, filtro por categoria e status |
+| **Ordenação** | 8 critérios de ordenação |
+| **Persistência** | Dados salvos no localStorage do navegador |
+| **Exportação CSV** | Exportar lista completa para planilha |
+| **Responsivo** | Funciona em desktop e mobile |
+
+---
+
+## 🎨 Stack
+
+- **React 18** com Hooks (`useState`, `useEffect`, `useMemo`)
+- **Vite** como bundler
+- **Inline Styles** com design system próprio (Dark Mode profissional)
+- **localStorage** para persistência local
+
+---
+
+## 🔮 Próximos Passos
+
+### Migração para Angular (via Claude Code)
+Este projeto React é a versão demo. Para a versão Angular com Signals:
 ```bash
-ng generate --help
+# No terminal com Claude Code instalado:
+claude "Implemente o TechStack Manager em Angular 18+ usando Signals..."
 ```
 
-## Building
+### Migração para Supabase
+O storage está isolado em `src/App.jsx` no objeto `db`:
+```js
+const db = {
+  async load() { /* trocar por supabase.from('items').select() */ },
+  async save(data) { /* trocar por supabase.from('items').upsert(data) */ }
+}
+```
 
-To build the project run:
-
+### Exportação para PDF
+Expandir a função `exportCSV` em `src/App.jsx` usando:
 ```bash
-ng build
+npm install jspdf jspdf-autotable
+# ou
+npm install @react-pdf/renderer
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+---
 
-## Running unit tests
+## 📁 Estrutura do Projeto
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
+```
+techstack-manager/
+├── index.html              # Entry point HTML
+├── package.json            # Dependências
+├── vite.config.js          # Configuração do Vite
+├── public/
+│   └── favicon.svg         # Ícone da aplicação
+└── src/
+    ├── main.jsx            # Bootstrap React
+    └── App.jsx             # Aplicação completa
+                            # (componentes, storage, lógica)
 ```
 
-## Running end-to-end tests
+---
 
-For end-to-end (e2e) testing, run:
+## 🏗️ Decisões Arquiteturais
 
-```bash
-ng e2e
-```
+**Estado reativo** — O helper `mutate(fn)` centraliza toda escrita de dados e persiste automaticamente, equivalente ao `effect` do Angular Signals.
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+**Computed values** — Todos os valores derivados (totais, deltas, lista filtrada) vivem em `useMemo`, que mapeia diretamente para `computed` signals do Angular.
 
-## Additional Resources
+**Assinatura visual** — O glow esmeralda radial em itens *Comprado* é o diferencial de UX: representa a peça conquistada brilhando no setup.
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+---
+
+Feito com ⚡ e muita vontade de montar o setup dos sonhos.
